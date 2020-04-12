@@ -1,12 +1,17 @@
+/* eslint-disable space-before-function-paren */
+// @ts-check
 const fs = require('fs')
 const path = require('path')
+const isWsl = require('is-wsl')
+const { execSync, exec, spawn } = require('child_process')
+const which = require('which')
+const { StringDecoder } = require('string_decoder')
 
-// #region Common
-function isJSFlags (flag) {
+function isJSFlags(flag) {
   return flag.indexOf('--js-flags=') === 0
 }
 
-function sanitizeJSFlags (flag) {
+function sanitizeJSFlags(flag) {
   const test = /--js-flags=(['"])/.exec(flag)
   if (!test) {
     return flag
@@ -17,9 +22,7 @@ function sanitizeJSFlags (flag) {
   return flag.replace(startExp, '--js-flags=').replace(endExp, '')
 }
 
-// Return location of msedge.exe file for a given Edge directory.
-// (available: "Edge", "Edge Beta", "Edge Dev", "Edge SxS")
-function getEdgeExe (edgeDirName) {
+function getEdgeExe(edgeDirName) {
   // Only run these checks on win32
   if (process.platform !== 'win32') {
     return null
@@ -45,7 +48,62 @@ function getEdgeExe (edgeDirName) {
   return windowsEdgeDirectory
 }
 
-function getEdgeDarwin (defaultPath) {
+const getAllPrefixesWsl = function () {
+  const drives = []
+  // Some folks configure their wsl.conf to mount Windows drives without the
+  // /mnt prefix (e.g. see https://nickjanetakis.com/blog/setting-up-docker-for-windows-and-wsl-to-work-flawlessly)
+  //
+  // In fact, they could configure this to be any number of things. So we
+  // take each path, convert it to a Windows path, check if it looks like
+  // it starts with a drive and then record that.
+  const re = /^([A-Z]):\\/i
+  for (const pathElem of process.env.PATH.split(':')) {
+    if (fs.existsSync(pathElem)) {
+      const windowsPath = execSync('wslpath -w "' + pathElem + '"').toString()
+      const matches = windowsPath.match(re)
+      if (matches !== null && drives.indexOf(matches[1]) === -1) {
+        drives.push(matches[1])
+      }
+    }
+  }
+
+  const result = []
+  // We don't have the PROGRAMFILES or PROGRAMFILES(X86) environment variables
+  // in WSL so we just hard code them.
+  const prefixes = ['Program Files', 'Program Files (x86)']
+  for (const prefix of prefixes) {
+    for (const drive of drives) {
+      // We only have the drive, and only wslpath knows exactly what they map to
+      // in Linux, so we convert it back here.
+      const wslPath =
+        execSync('wslpath "' + drive + ':\\' + prefix + '"').toString().trim()
+      result.push(wslPath)
+    }
+  }
+
+  return result
+}
+
+const getEdgeExeWsl = function (edgeDirName) {
+  if (!isWsl) {
+    return null
+  }
+
+  const edgeDirNames = Array.prototype.slice.call(arguments)
+
+  for (const prefix of getAllPrefixesWsl()) {
+    for (const dir of edgeDirNames) {
+      const candidate = path.join(prefix, 'Microsoft', dir, 'Application', 'msedge.exe')
+      if (fs.existsSync(candidate)) {
+        return candidate
+      }
+    }
+  }
+
+  return path.join('/mnt/c/Program Files/', 'Microsoft', edgeDirNames[0], 'Application', 'msedge.exe')
+}
+
+function getEdgeDarwin(defaultPath) {
   if (process.platform !== 'darwin') {
     return null
   }
@@ -59,19 +117,21 @@ function getEdgeDarwin (defaultPath) {
   }
 }
 
-function getHeadlessOptions (url, args, parent) {
+function getHeadlessOptions(url, args, parent) {
   const mergedArgs = parent.call(this, url, args).concat([
     '--headless',
     '--disable-gpu',
     '--disable-dev-shm-usage'
   ])
 
+  if (isWsl) { mergedArgs.push('--no-sandbox') }
+
   const isRemoteDebuggingFlag = (flag) => (flag || '').indexOf('--remote-debugging-port=') !== -1
 
   return mergedArgs.some(isRemoteDebuggingFlag) ? mergedArgs : mergedArgs.concat(['--remote-debugging-port=9222'])
 }
 
-function getCanaryOptions (url, args, parent) {
+function getCanaryOptions(url, args, parent) {
   // disable crankshaft optimizations, as it causes lot of memory leaks (as of Edge 23.0)
   const flags = args.flags || []
   let augmentedFlags
@@ -85,16 +145,16 @@ function getCanaryOptions (url, args, parent) {
 
   return parent.call(this, url).concat([augmentedFlags || `--js-flags=${customFlags}`])
 }
-// #endregion
 
-// #region Edge
 const EdgeBrowser = function (baseBrowserDecorator, args) {
   baseBrowserDecorator(this)
+  let windowsUsed = false
+  let browserProcessPid
 
   const flags = args.flags || []
   const userDataDir = args.edgeDataDir || this._tempDir
 
-  this._getOptions = function (url) {
+  this._getOptions = function () {
     // Edge CLI options
     // http://peter.sh/experiments/chromium-command-line-switches/
     flags.forEach((flag, i) => {
@@ -104,7 +164,6 @@ const EdgeBrowser = function (baseBrowserDecorator, args) {
     })
 
     return [
-      `--user-data-dir=${userDataDir}`,
       // https://github.com/GoogleChrome/chrome-launcher/blob/master/docs/chrome-flags-for-tools.md#--enable-automation
       '--enable-automation',
       '--no-default-browser-check',
@@ -118,18 +177,131 @@ const EdgeBrowser = function (baseBrowserDecorator, args) {
       // see https://github.com/karma-runner/karma-chrome-launcher/issues/123
       '--disable-renderer-backgrounding',
       '--disable-device-discovery-notifications'
-    ].concat(flags, [url])
+    ].concat(flags)
   }
+
+  this._start = function (url) {
+    var command = this._getCommand()
+    let runningProcess
+
+    const useWindowsWSL = () => {
+      console.log('WSL: using Windows')
+      windowsUsed = true
+
+      const translatedUserDataDir = execSync('wslpath -w ' + userDataDir).toString().trim()
+
+      // Translate command to a windows path to make it possisible to get the pid.
+      const commandPrepare = command.split('/').slice(0, -1).join('/')
+        .replace(/\s/g, '\\ ')
+        .replace(/\(/g, '\\(')
+        .replace(/\)/g, '\\)')
+      const commandTranslatePath = execSync('wslpath -w ' + commandPrepare).toString().trim()
+      const commandTranslated = commandTranslatePath + '\\msedge.exe'
+
+      /*
+      Custom launch implementation to get pid via wsl interop:
+      Start edge on windows and send process id back via stderr (mozilla strategy).
+      */
+      this._execCommand = spawn('/bin/bash', ['-c',
+        `
+        processString=$(wmic.exe process call create "${commandTranslated}\
+        ${url}\
+        --user-data-dir=${translatedUserDataDir}\
+        ${this._getOptions().join(' ')}\
+        ");
+
+        while IFS= read -r line; do
+          if [[ $line == *"ProcessId = "* ]]; then
+      
+            removePrefix=\${line#*ProcessId = }
+            removeSuffix=\${removePrefix%;*}
+            pid=$removeSuffix
+    
+            debugString="BROWSERBROWSERBROWSERBROWSER debug me @ $pid"
+            echo >&2 "$debugString"
+            exit 0
+      
+          fi
+        done < <(printf '%s\n' "$processString")
+        exit 0;
+        `]
+      )
+
+      runningProcess = this._execCommand
+    }
+
+    const useNormal = () => {
+      this._execCommand(
+        command,
+        [url, `--user-data-dir=${userDataDir}`].concat(this._getOptions())
+      )
+
+      runningProcess = this._process
+    }
+
+    if (isWsl) {
+      // Not yet released on Linux, using 'msedge' in place for now.
+      if (!which.sync('msedge', { nothrow: true })) {
+        // If Edge is not installed on Linux side then always use windows.
+        useWindowsWSL()
+      } else {
+        if (!args.headless && !process.env.DISPLAY) {
+          // If not in headless mode it will fail so use windows in that case.
+          useWindowsWSL()
+        } else {
+          // Revert back to Linux command (this is for all of the launchers 'msedge', so hardcoded for now).
+          command = 'msedge'
+          useNormal()
+        }
+      }
+    } else {
+      useNormal()
+    }
+
+    // @ts-ignore
+    runningProcess.stderr.on('data', errBuff => {
+      var errString
+      if (typeof errBuff === 'string') {
+        errString = errBuff
+      } else {
+        var decoder = new StringDecoder('utf8')
+        errString = decoder.write(errBuff)
+      }
+      var matches = errString.match(/BROWSERBROWSERBROWSERBROWSER\s+debug me @ (\d+)/)
+      if (matches) {
+        browserProcessPid = parseInt(matches[1], 10)
+      }
+    })
+  }
+
+  this.on('kill', function (done) {
+    // If we have a separate browser process PID, try killing it.
+    if (browserProcessPid) {
+      try {
+        windowsUsed
+          ? exec(`Taskkill.exe /PID ${browserProcessPid} /F /FI "STATUS eq RUNNING"`)
+          : process.kill(browserProcessPid)
+      } catch (e) {
+        // Ignore failure -- the browser process might have already been
+        // terminated.
+      }
+    }
+
+    return process.nextTick(done)
+  })
 }
+
 EdgeBrowser.prototype = {
   name: 'Edge',
 
   DEFAULT_CMD: {
+    linux: isWsl ? getEdgeExeWsl('Edge') : null, // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'),
     win32: getEdgeExe('Edge')
   },
   ENV_CMD: 'EDGE_BIN'
 }
+
 EdgeBrowser.$inject = ['baseBrowserDecorator', 'args']
 
 const EdgeHeadlessBrowser = function (...args) {
@@ -141,15 +313,14 @@ EdgeHeadlessBrowser.prototype = {
   name: 'EdgeHeadless',
 
   DEFAULT_CMD: {
+    linux: isWsl ? getEdgeExeWsl('Edge') : null, // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'),
     win32: getEdgeExe('Edge')
   },
   ENV_CMD: 'EDGE_BIN'
 }
 EdgeHeadlessBrowser.$inject = ['baseBrowserDecorator', 'args']
-// #endregion
 
-// #region Edge Beta
 const EdgeBetaBrowser = function (...args) {
   EdgeBrowser.apply(this, args)
 }
@@ -157,6 +328,7 @@ EdgeBetaBrowser.prototype = {
   name: 'EdgeBeta',
 
   DEFAULT_CMD: {
+    linux: isWsl ? getEdgeExeWsl('Edge Beta') : null, // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge Beta.app/Contents/MacOS/Microsoft Edge Beta'),
     win32: getEdgeExe('Edge Beta')
   },
@@ -171,15 +343,14 @@ EdgeBetaHeadlessBrowser.prototype = {
   name: 'EdgeBetaHeadless',
 
   DEFAULT_CMD: {
+    linux: isWsl ? getEdgeExeWsl('Edge Beta') : null, // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge Beta.app/Contents/MacOS/Microsoft Edge Beta'),
     win32: getEdgeExe('Edge Beta')
   },
   ENV_CMD: 'EDGE_BETA_BIN'
 }
 EdgeHeadlessBrowser.$inject = ['baseBrowserDecorator', 'args']
-// #endregion
 
-// #region Edge Dev
 const EdgeDevBrowser = function (...args) {
   EdgeBrowser.apply(this, args)
 }
@@ -187,6 +358,7 @@ EdgeDevBrowser.prototype = {
   name: 'EdgeDev',
 
   DEFAULT_CMD: {
+    linux: isWsl ? getEdgeExeWsl('Edge Dev') : null, // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge Dev.app/Contents/MacOS/Microsoft Edge Dev'),
     win32: getEdgeExe('Edge Dev')
   },
@@ -201,15 +373,14 @@ EdgeDevHeadlessBrowser.prototype = {
   name: 'EdgeDevHeadless',
 
   DEFAULT_CMD: {
+    linux: isWsl ? getEdgeExeWsl('Edge Dev') : null, // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge Dev.app/Contents/MacOS/Microsoft Edge Dev'),
     win32: getEdgeExe('Edge Dev')
   },
   ENV_CMD: 'EDGE_DEV_BIN'
 }
 EdgeHeadlessBrowser.$inject = ['baseBrowserDecorator', 'args']
-// #endregion
 
-// #region Edge Canary (SxS)
 const EdgeCanaryBrowser = function (...args) {
   EdgeBrowser.apply(this, args)
   const parentOptions = this._getOptions
@@ -219,6 +390,7 @@ EdgeCanaryBrowser.prototype = {
   name: 'EdgeCanary',
 
   DEFAULT_CMD: {
+    linux: isWsl ? getEdgeExeWsl('Edge SxS') : null, // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge Canary.app/Contents/MacOS/Microsoft Edge Canary'),
     win32: getEdgeExe('Edge SxS')
   },
@@ -235,13 +407,13 @@ EdgeCanaryHeadlessBrowser.prototype = {
   name: 'EdgeCanaryHeadless',
 
   DEFAULT_CMD: {
+    linux: isWsl ? getEdgeExeWsl('Edge SxS') : null, // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge Canary.app/Contents/MacOS/Microsoft Edge Canary'),
     win32: getEdgeExe('Edge SxS')
   },
   ENV_CMD: 'EDGE_CANARY_BIN'
 }
 EdgeCanaryHeadlessBrowser.$inject = ['baseBrowserDecorator', 'args']
-// #endregion
 
 // PUBLISH DI MODULE
 module.exports = {

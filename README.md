@@ -3,21 +3,21 @@
 Forked from <https://github.com/matracey/karma-edgium-launcher>
 Removed fork relation because this is a deep nested fork to <https://github.com/karma-runner/karma-chrome-launcher>
 
-[![js-standard-style](https://img.shields.io/badge/code%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/koddsson/karma-edgium-launcher)
+<!-- [![js-standard-style](https://img.shields.io/badge/code%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/koddsson/karma-edgium-launcher)
  [![npm version](https://img.shields.io/npm/v/karma-edgium-launcher.svg?style=flat-square)](https://www.npmjs.com/package/karma-edgium-launcher) [![npm downloads](https://img.shields.io/npm/dm/karma-edgium-launcher.svg?style=flat-square)](https://www.npmjs.com/package/karma-edgium-launcher)
 
-[![Build Status](https://img.shields.io/travis/koddsson/karma-edgium-launcher/master.svg?style=flat-square)](https://travis-ci.org/koddsson/karma-edgium-launcher) [![Dependency Status](https://img.shields.io/david/koddsson/karma-edgium-launcher.svg?style=flat-square)](https://david-dm.org/koddsson/karma-edgium-launcher) [![devDependency Status](https://img.shields.io/david/dev/koddsson/karma-edgium-launcher.svg?style=flat-square)](https://david-dm.org/koddsson/karma-edgium-launcher#info=devDependencies)
+[![Build Status](https://img.shields.io/travis/koddsson/karma-edgium-launcher/master.svg?style=flat-square)](https://travis-ci.org/koddsson/karma-edgium-launcher) [![Dependency Status](https://img.shields.io/david/koddsson/karma-edgium-launcher.svg?style=flat-square)](https://david-dm.org/koddsson/karma-edgium-launcher) [![devDependency Status](https://img.shields.io/david/dev/koddsson/karma-edgium-launcher.svg?style=flat-square)](https://david-dm.org/koddsson/karma-edgium-launcher#info=devDependencies) -->
 
 > Launcher for Edge and Edge Canary.
 
 ## Installation
 
-The easiest way is to keep `karma-edgium-launcher` as a devDependency in your `package.json`,
+<!-- The easiest way is to keep `karma-edgium-launcher` as a devDependency in your `package.json`,
 by running
 
 ```bash
 npm i -D karma-edgium-launcher
-```
+``` -->
 
 ## Configuration
 
@@ -83,7 +83,7 @@ process.env.EDGE_BIN = require('puppeteer').executablePath()
 
 module.exports = function(config) {
   config.set({
-    browsers: ['EdgeHeadless']
+    browsers: ['Edge']
   })
 }
 ```

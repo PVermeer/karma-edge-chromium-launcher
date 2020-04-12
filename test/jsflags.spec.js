@@ -62,7 +62,7 @@ describe('headlessGetOptions', () => {
     const context = {}
     const url = 'http://localhost:9876'
     const args = {}
-    expect(headlessGetOptions.call(context, url, args, parent)).to.be.eql([
+    expect(headlessGetOptions.call(context, url, args, parent)).to.include.members([
       '-incognito',
       '--headless',
       '--disable-gpu',
@@ -78,7 +78,7 @@ describe('headlessGetOptions', () => {
     const context = {}
     const url = 'http://localhost:9876'
     const args = {}
-    expect(headlessGetOptions.call(context, url, args, parent)).to.be.eql([
+    expect(headlessGetOptions.call(context, url, args, parent)).to.include.members([
       '-incognito',
       '--remote-debugging-port=9333',
       '--headless',
