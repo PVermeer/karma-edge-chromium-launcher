@@ -6,7 +6,7 @@
   "scripts": {
     "lint": "standard",
     "pretest": "npm run lint",
-    "test": "grunt test"
+    "test": "standard && mocha test/**/*.spec.js && karma start examples/simple/karma.conf.js"
   },
   "repository": {
     "type": "git",
@@ -23,18 +23,9 @@
   "license": "MIT",
   "devDependencies": {
     "chai": "^4.2.0",
-    "grunt": "^1.0.1",
-    "grunt-auto-release": "^0.0.7",
-    "grunt-bump": "^0.8.0",
-    "grunt-conventional-changelog": "^6.1.0",
-    "grunt-conventional-github-releaser": "^1.0.0",
-    "grunt-karma": "^3.0.0",
-    "grunt-npm": "^0.0.2",
-    "grunt-simple-mocha": "^0.4.0",
     "jasmine-node": "^3.0.0",
     "karma": "^3.1.4",
     "karma-mocha": "1.x || ^0.2.0",
-    "load-grunt-tasks": "^4.0.0",
     "mocha": "^5.2.0",
     "sinon": "^7.1.1",
     "standard": "^12.0.0"
@@ -85,6 +76,8 @@
     "test": "test"
   },
   "standard": {
-    "env": [ "mocha" ]
+    "env": [
+      "mocha"
+    ]
   }
 }
