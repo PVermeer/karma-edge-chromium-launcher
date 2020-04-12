@@ -1,4 +1,7 @@
-# karma-edgium-launcher
+# karma-edge-chromium-launcher
+
+Forked from <https://github.com/matracey/karma-edgium-launcher>
+Removed fork relation because this is a deep nested fork to <https://github.com/karma-runner/karma-chrome-launcher>
 
 [![js-standard-style](https://img.shields.io/badge/code%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/koddsson/karma-edgium-launcher)
  [![npm version](https://img.shields.io/npm/v/karma-edgium-launcher.svg?style=flat-square)](https://www.npmjs.com/package/karma-edgium-launcher) [![npm downloads](https://img.shields.io/npm/dm/karma-edgium-launcher.svg?style=flat-square)](https://www.npmjs.com/package/karma-edgium-launcher)
@@ -13,7 +16,7 @@ The easiest way is to keep `karma-edgium-launcher` as a devDependency in your `p
 by running
 
 ```bash
-$ npm i -D karma-edgium-launcher
+npm i -D karma-edgium-launcher
 ```
 
 ## Configuration
@@ -51,10 +54,11 @@ customLaunchers: {
 You can pass list of browsers as a CLI argument too:
 
 ```bash
-$ karma start --browsers Edge,Edge_without_security
+karma start --browsers Edge,Edge_without_security
 ```
 
 ### Available Browsers
+
 *Note: Headless mode requires a browser version >= 59*
 
 - Edge (EDGE_BIN)
@@ -68,8 +72,9 @@ $ karma start --browsers Edge,Edge_without_security
 - Dartium (DARTIUM_BIN)
 
 #### Usage
+
 ```bash
-$ npm i -D puppeteer karma-edgium-launcher
+npm i -D puppeteer karma-edgium-launcher
 ```
 
 ```js
