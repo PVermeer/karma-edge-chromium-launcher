@@ -22,6 +22,23 @@ function sanitizeJSFlags(flag) {
   return flag.replace(startExp, '--js-flags=').replace(endExp, '')
 }
 
+function getBin(commands) {
+  // Don't run these checks on win32
+  if (process.platform !== 'linux') {
+    return null
+  }
+  var bin, i
+  for (i = 0; i < commands.length; i++) {
+    try {
+      if (which.sync(commands[i])) {
+        bin = commands[i]
+        break
+      }
+    } catch (e) { }
+  }
+  return bin
+}
+
 function getEdgeExe(edgeDirName) {
   // Only run these checks on win32
   if (process.platform !== 'win32') {
@@ -180,7 +197,7 @@ const EdgeBrowser = function (baseBrowserDecorator, args) {
     ].concat(flags)
   }
 
-  this._start = function (url) {
+  this._start = (url) => {
     var command = this._getCommand()
     let runningProcess
 
@@ -191,12 +208,14 @@ const EdgeBrowser = function (baseBrowserDecorator, args) {
       const translatedUserDataDir = execSync('wslpath -w ' + userDataDir).toString().trim()
 
       // Translate command to a windows path to make it possisible to get the pid.
-      const commandPrepare = command.split('/').slice(0, -1).join('/')
+      let commandPrepare = this.DEFAULT_CMD.win32.split('/')
+      const executable = commandPrepare.pop()
+      commandPrepare = commandPrepare.join('/')
         .replace(/\s/g, '\\ ')
         .replace(/\(/g, '\\(')
         .replace(/\)/g, '\\)')
       const commandTranslatePath = execSync('wslpath -w ' + commandPrepare).toString().trim()
-      const commandTranslated = commandTranslatePath + '\\msedge.exe'
+      const commandTranslated = commandTranslatePath + '\\' + executable
 
       /*
       Custom launch implementation to get pid via wsl interop:
@@ -240,17 +259,16 @@ const EdgeBrowser = function (baseBrowserDecorator, args) {
     }
 
     if (isWsl) {
-      // Not yet released on Linux, using 'msedge' in place for now.
-      if (!which.sync('msedge', { nothrow: true })) {
+      if (!this.DEFAULT_CMD.linux || !which.sync(this.DEFAULT_CMD.linux, { nothrow: true })) {
         // If Edge is not installed on Linux side then always use windows.
         useWindowsWSL()
       } else {
-        if (!args.headless && !process.env.DISPLAY) {
+        if (!this._getOptions().includes('--headless') && !process.env.DISPLAY) {
           // If not in headless mode it will fail so use windows in that case.
           useWindowsWSL()
         } else {
-          // Revert back to Linux command (this is for all of the launchers 'msedge', so hardcoded for now).
-          command = 'msedge'
+          // Revert back to Linux command.
+          command = this.DEFAULT_CMD.linux
           useNormal()
         }
       }
@@ -295,9 +313,9 @@ EdgeBrowser.prototype = {
   name: 'Edge',
 
   DEFAULT_CMD: {
-    linux: isWsl ? getEdgeExeWsl('Edge') : null, // No release on Linux yet
+    linux: getBin(['msedge']), // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'),
-    win32: getEdgeExe('Edge')
+    win32: isWsl ? getEdgeExeWsl('Edge') : getEdgeExe('Edge')
   },
   ENV_CMD: 'EDGE_BIN'
 }
@@ -313,9 +331,9 @@ EdgeHeadlessBrowser.prototype = {
   name: 'EdgeHeadless',
 
   DEFAULT_CMD: {
-    linux: isWsl ? getEdgeExeWsl('Edge') : null, // No release on Linux yet
+    linux: getBin(['msedge']), // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'),
-    win32: getEdgeExe('Edge')
+    win32: isWsl ? getEdgeExeWsl('Edge') : getEdgeExe('Edge')
   },
   ENV_CMD: 'EDGE_BIN'
 }
@@ -328,9 +346,9 @@ EdgeBetaBrowser.prototype = {
   name: 'EdgeBeta',
 
   DEFAULT_CMD: {
-    linux: isWsl ? getEdgeExeWsl('Edge Beta') : null, // No release on Linux yet
+    linux: getBin(['msedge-beta']), // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge Beta.app/Contents/MacOS/Microsoft Edge Beta'),
-    win32: getEdgeExe('Edge Beta')
+    win32: isWsl ? getEdgeExeWsl('Edge Beta') : getEdgeExe('Edge Beta')
   },
   ENV_CMD: 'EDGE_BETA_BIN'
 }
@@ -343,9 +361,9 @@ EdgeBetaHeadlessBrowser.prototype = {
   name: 'EdgeBetaHeadless',
 
   DEFAULT_CMD: {
-    linux: isWsl ? getEdgeExeWsl('Edge Beta') : null, // No release on Linux yet
+    linux: getBin(['msedge-beta']), // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge Beta.app/Contents/MacOS/Microsoft Edge Beta'),
-    win32: getEdgeExe('Edge Beta')
+    win32: isWsl ? getEdgeExeWsl('Edge Beta') : getEdgeExe('Edge Beta')
   },
   ENV_CMD: 'EDGE_BETA_BIN'
 }
@@ -358,9 +376,9 @@ EdgeDevBrowser.prototype = {
   name: 'EdgeDev',
 
   DEFAULT_CMD: {
-    linux: isWsl ? getEdgeExeWsl('Edge Dev') : null, // No release on Linux yet
+    linux: getBin(['msedge-dev']), // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge Dev.app/Contents/MacOS/Microsoft Edge Dev'),
-    win32: getEdgeExe('Edge Dev')
+    win32: isWsl ? getEdgeExeWsl('Edge Dev') : getEdgeExe('Edge Dev')
   },
   ENV_CMD: 'EDGE_DEV_BIN'
 }
@@ -373,9 +391,9 @@ EdgeDevHeadlessBrowser.prototype = {
   name: 'EdgeDevHeadless',
 
   DEFAULT_CMD: {
-    linux: isWsl ? getEdgeExeWsl('Edge Dev') : null, // No release on Linux yet
+    linux: getBin(['msedge-dev']), // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge Dev.app/Contents/MacOS/Microsoft Edge Dev'),
-    win32: getEdgeExe('Edge Dev')
+    win32: isWsl ? getEdgeExeWsl('Edge Dev') : getEdgeExe('Edge Dev')
   },
   ENV_CMD: 'EDGE_DEV_BIN'
 }
@@ -390,9 +408,9 @@ EdgeCanaryBrowser.prototype = {
   name: 'EdgeCanary',
 
   DEFAULT_CMD: {
-    linux: isWsl ? getEdgeExeWsl('Edge SxS') : null, // No release on Linux yet
+    linux: getBin(['Edge SxS']), // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge Canary.app/Contents/MacOS/Microsoft Edge Canary'),
-    win32: getEdgeExe('Edge SxS')
+    win32: isWsl ? getEdgeExeWsl('Edge SxS') : getEdgeExe('Edge SxS')
   },
   ENV_CMD: 'EDGE_CANARY_BIN'
 }
@@ -407,9 +425,9 @@ EdgeCanaryHeadlessBrowser.prototype = {
   name: 'EdgeCanaryHeadless',
 
   DEFAULT_CMD: {
-    linux: isWsl ? getEdgeExeWsl('Edge SxS') : null, // No release on Linux yet
+    linux: getBin(['Edge SxS']), // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge Canary.app/Contents/MacOS/Microsoft Edge Canary'),
-    win32: getEdgeExe('Edge SxS')
+    win32: isWsl ? getEdgeExeWsl('Edge SxS') : getEdgeExe('Edge SxS')
   },
   ENV_CMD: 'EDGE_CANARY_BIN'
 }
