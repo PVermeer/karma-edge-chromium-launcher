@@ -408,7 +408,7 @@ EdgeCanaryBrowser.prototype = {
   name: 'EdgeCanary',
 
   DEFAULT_CMD: {
-    linux: getBin(['Edge SxS']), // No release on Linux yet
+    linux: getBin(['msedge-sxs']), // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge Canary.app/Contents/MacOS/Microsoft Edge Canary'),
     win32: isWsl ? getEdgeExeWsl('Edge SxS') : getEdgeExe('Edge SxS')
   },
@@ -425,7 +425,7 @@ EdgeCanaryHeadlessBrowser.prototype = {
   name: 'EdgeCanaryHeadless',
 
   DEFAULT_CMD: {
-    linux: getBin(['Edge SxS']), // No release on Linux yet
+    linux: getBin(['msedge-sxs']), // No release on Linux yet
     darwin: getEdgeDarwin('/Applications/Microsoft Edge Canary.app/Contents/MacOS/Microsoft Edge Canary'),
     win32: isWsl ? getEdgeExeWsl('Edge SxS') : getEdgeExe('Edge SxS')
   },
