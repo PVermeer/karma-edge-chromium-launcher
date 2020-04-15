@@ -3,9 +3,10 @@
 const fs = require('fs')
 const path = require('path')
 const isWsl = require('is-wsl')
-const { execSync, exec, spawn } = require('child_process')
+const { execSync, spawn } = require('child_process')
 const which = require('which')
 const { StringDecoder } = require('string_decoder')
+const rimraf = require('rimraf')
 
 function isJSFlags(flag) {
   return flag.indexOf('--js-flags=') === 0
@@ -20,6 +21,16 @@ function sanitizeJSFlags(flag) {
   const endExp = new RegExp(`${escapeChar}$`)
   const startExp = new RegExp(`--js-flags=${escapeChar}`)
   return flag.replace(startExp, '--js-flags=').replace(endExp, '')
+}
+
+function escapePath(path) {
+  return path
+    .replace(/(\r\n|\r|\n)/gm, '')
+    .trim()
+    .replace(/\\/g, '\\\\')
+    .replace(/\s/g, '\\ ')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)')
 }
 
 function getBin(commands) {
@@ -165,11 +176,12 @@ function getCanaryOptions(url, args, parent) {
 
 const EdgeBrowser = function (baseBrowserDecorator, args) {
   baseBrowserDecorator(this)
+  let runningProcess
   let windowsUsed = false
   let browserProcessPid
 
   const flags = args.flags || []
-  const userDataDir = args.edgeDataDir || this._tempDir
+  let userDataDir = args.edgeDataDir || this._tempDir
 
   this._getOptions = function () {
     // Edge CLI options
@@ -199,22 +211,35 @@ const EdgeBrowser = function (baseBrowserDecorator, args) {
 
   this._start = (url) => {
     var command = this._getCommand()
-    let runningProcess
 
     const useWindowsWSL = () => {
       console.log('WSL: using Windows')
       windowsUsed = true
 
-      const translatedUserDataDir = execSync('wslpath -w ' + userDataDir).toString().trim()
+      /*
+      Translate temp path for userDataDir to be able to write to the path on Linux while
+      Edge itself gets the windows path.
+      */
+      const getWindowsTempPath = execSync('cmd.exe /u /q /c ECHO %Temp%', { encoding: 'utf16le' })
+        .replace(/(\r\n|\r|\n)/gm, '')
+        .trim()
+      const windowsUserDirPath = `${getWindowsTempPath}\\karma-${this.id.toString()}`
+      userDataDir = execSync('wslpath -a ' + escapePath(windowsUserDirPath)).toString().trim()
 
-      // Translate command to a windows path to make it possisible to get the pid.
-      let commandPrepare = this.DEFAULT_CMD.win32.split('/')
-      const executable = commandPrepare.pop()
-      commandPrepare = commandPrepare.join('/')
-        .replace(/\s/g, '\\ ')
-        .replace(/\(/g, '\\(')
-        .replace(/\)/g, '\\)')
-      const commandTranslatePath = execSync('wslpath -w ' + commandPrepare).toString().trim()
+      console.log(windowsUserDirPath)
+
+      // Create temp dir
+      try {
+        fs.mkdirSync(userDataDir)
+      } catch (e) {
+        console.warn(`Failed to create a temp dir at ${userDataDir}`)
+      }
+
+      // Translate the command path to a windows path to make it possible to get the pid.
+      const commandPreparePathArray = this.DEFAULT_CMD.win32.split('/')
+      const executable = commandPreparePathArray.pop()
+      const commandPreparePath = escapePath(commandPreparePathArray.join('/'))
+      const commandTranslatePath = execSync('wslpath -w ' + commandPreparePath).toString().trim()
       const commandTranslated = commandTranslatePath + '\\' + executable
 
       /*
@@ -225,7 +250,7 @@ const EdgeBrowser = function (baseBrowserDecorator, args) {
         `
         processString=$(wmic.exe process call create "${commandTranslated}\
         ${url}\
-        --user-data-dir=${translatedUserDataDir}\
+        --user-data-dir=${windowsUserDirPath}\
         ${this._getOptions().join(' ')}\
         ");
 
@@ -296,14 +321,25 @@ const EdgeBrowser = function (baseBrowserDecorator, args) {
     // If we have a separate browser process PID, try killing it.
     if (browserProcessPid) {
       try {
-        windowsUsed
-          ? exec(`Taskkill.exe /PID ${browserProcessPid} /F /FI "STATUS eq RUNNING"`)
-          : process.kill(browserProcessPid)
+        if (windowsUsed) {
+          // Clean up
+          execSync(`Taskkill.exe /PID ${browserProcessPid} /F /FI "STATUS eq RUNNING"`)
+          rimraf.sync(userDataDir)
+          rimraf.sync(this._tempDir)
+        } else {
+          // Kill the normal process, Karma should pick up the cleanup
+          process.kill(browserProcessPid)
+        }
       } catch (e) {
         // Ignore failure -- the browser process might have already been
         // terminated.
       }
     }
+
+    // If process is still running, kill it.
+    try {
+      runningProcess.kill()
+    } catch (_) { }
 
     return process.nextTick(done)
   })

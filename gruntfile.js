@@ -67,6 +67,7 @@ module.exports = function (grunt) {
 
   loadGruntTasks(grunt)
 
+  // No edge linux binary, so no karma for CI
   grunt.registerTask('test', ['simplemocha'])
   grunt.registerTask('default', ['test'])
 
